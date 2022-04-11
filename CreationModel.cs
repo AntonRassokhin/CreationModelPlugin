@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Autodesk.Revit.ApplicationServices;
 
 namespace CreationModelPlugin
 {
@@ -80,7 +81,7 @@ namespace CreationModelPlugin
             List<Wall> walls = new List<Wall>(); //создали массив под стены на будущее
 
             Transaction tr = new Transaction(doc); //запускаем транзакцию для добавления в модель
-            tr.Start("Построение стен");
+            tr.Start("Построение здания");
             for (int i = 0; i < 4; i++) //перебираем циклом точки
             {
                 Line line = Line.CreateBound(points[i], points[i + 1]); //на основании точек создаем линию
@@ -96,9 +97,12 @@ namespace CreationModelPlugin
                 AddWindow(doc, level1, walls[i+1]);
             }
 
+            AddRoof(doc, level2, walls); //добавляем метод для создания крыши
+
             tr.Commit();
         }
-               
+
+        
         private static void AddDoor(Document doc, Level level1, Wall wall)
         {
             FamilySymbol doorType = new FilteredElementCollector(doc) //отфильтровываем из документа необходимое семейство и типоразмер двери
@@ -143,6 +147,57 @@ namespace CreationModelPlugin
             Parameter height = window.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM);
             double heightMM = UnitUtils.ConvertToInternalUnits(850, UnitTypeId.Millimeters); //где 850 - высота от пола до низа окна
             height.Set(heightMM); //делаем все это чтобы окна были подняты от пола
+        }
+
+        private static void AddRoof(Document doc, Level level2, List<Wall> walls)
+        {
+            RoofType roofType = new FilteredElementCollector(doc) //выбираем тип крыши, которую будем создавать
+                .OfClass(typeof(RoofType))
+                .OfType<RoofType>()
+                .Where(x => x.Name.Equals("Типовой - 400мм"))
+                .Where(x => x.FamilyName.Equals("Базовая крыша"))
+                .FirstOrDefault();
+
+            CurveArray curveArray = new CurveArray();
+            curveArray.Append(Line.CreateBound(new XYZ(-20, -10, 13), new XYZ(-20, 0, 20)));
+            curveArray.Append(Line.CreateBound(new XYZ(-20, 0, 20), new XYZ(-20, 10, 13)));
+
+            ReferencePlane plane = doc.Create.NewReferencePlane(new XYZ(0, 0, 0), new XYZ(0, 0, 20), new XYZ(0, 20, 0), doc.ActiveView);
+            doc.Create.NewExtrusionRoof(curveArray, plane, level2, roofType, -19, 19);
+
+            // ЭТО ПРИМЕР КОДА ИЗ ЛЕКЦИИ ДЛЯ СОЗДАНИЯ КРЫШИ ЧЕРЕЗ FootPrintRoof
+            /*
+            double wallWidth = walls[0].Width; //возьмем ширину стены
+            double halfWidth = wallWidth / 2; //это половина толщины стены (делаем чтобы край крыши был не по середине стены, а по краю стены)
+            
+            List<XYZ> roofPoints = new List<XYZ>(); //создаем список координат для смещения углов крыши от центра стен
+            roofPoints.Add(new XYZ(-halfWidth, -halfWidth, 0));
+            roofPoints.Add(new XYZ(halfWidth, -halfWidth, 0)); 
+            roofPoints.Add(new XYZ(halfWidth, halfWidth, 0));
+            roofPoints.Add(new XYZ(-halfWidth, halfWidth, 0));
+            roofPoints.Add(new XYZ(-halfWidth, -halfWidth, 0)); //добавляем каждую точку смещения
+
+            Application app = doc.Application;
+
+            CurveArray footprint = app.Create.NewCurveArray(); //создаем массив кривых, которые образуют стены, которые будут формировать контур крыши
+            for (int i = 0; i < 4; i++) //переберем стены и запихнем в массив кривые
+            {
+                LocationCurve curve = walls[i].Location as LocationCurve;
+                XYZ startPoint = curve.Curve.GetEndPoint(0);
+                XYZ endPoint = curve.Curve.GetEndPoint(1); //берем точки начала и конца отрезка кривой
+                Line line = Line.CreateBound(startPoint + roofPoints[i], endPoint + roofPoints[i + 1]); //на основе точек создаем новую ЛИНИЮ со смещением по толщине стен
+                                                                                                //
+                footprint.Append(line); //присоединяем линию в кривую, по которой будет строиться кровля
+            }
+            ModelCurveArray footPrintToModelCurveMapping = new ModelCurveArray(); //с этим массивом (в котором хранятся все грани крыши) потом можно будет менять свойства крыши
+            FootPrintRoof footprintRoof = doc.Create.NewFootPrintRoof(footprint, level2, roofType, out footPrintToModelCurveMapping); //создаем крышу
+                        
+            foreach (ModelCurve m in footPrintToModelCurveMapping) //по сути перебираем счетчиком массив с гранями кровли
+            {
+                footprintRoof.set_DefinesSlope(m, true); //это вроде дает возможность устанавливать уклон?
+                footprintRoof.set_SlopeAngle(m, 0.5); //это задает угол наклона граней крыши 0,5 - тангенс угла
+            }
+            */
         }
     }
 }
